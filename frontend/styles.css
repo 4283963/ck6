@@ -104,6 +104,47 @@ body {
   color: #f0883e;
 }
 
+.selection-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 14px;
+  background: linear-gradient(135deg, #1f6feb 0%, #388bfd 100%);
+  border-radius: 20px;
+  font-size: 13px;
+  color: #fff;
+  animation: slideIn 0.3s ease;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.selection-info .selected-count strong {
+  font-size: 15px;
+  margin: 0 3px;
+}
+
+.btn-clear {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  padding: 4px 10px;
+  font-size: 12px;
+  border-radius: 12px;
+}
+
+.btn-clear:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
 .main-content {
   display: flex;
   flex: 1;
@@ -230,8 +271,13 @@ body {
   color: #fff;
 }
 
-.btn-warning:hover {
+.btn-warning:hover:not(:disabled) {
   background: #ff9a4d;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .content {
@@ -263,15 +309,54 @@ body {
   border-color: #444c56;
 }
 
+.server-card.selected {
+  border-color: #1f6feb;
+  background: linear-gradient(135deg, #1f2a44 0%, #23272f 100%);
+  box-shadow: 0 0 0 2px rgba(31, 111, 235, 0.3);
+}
+
+.server-card.selected::before {
+  content: '✓';
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  width: 20px;
+  height: 20px;
+  background: #1f6feb;
+  color: #fff;
+  font-size: 12px;
+  font-weight: bold;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1;
+}
+
 .server-card.warning {
   border-color: #f0883e;
   background: linear-gradient(135deg, #2d2420 0%, #23272f 100%);
   animation: warning-pulse 2s infinite;
 }
 
+.server-card.warning.selected {
+  border-color: #f0883e;
+  background: linear-gradient(135deg, #3a2d22 0%, #1f2a44 100%);
+  box-shadow: 0 0 0 2px rgba(31, 111, 235, 0.3);
+}
+
 @keyframes warning-pulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(240, 136, 62, 0.4); }
   50% { box-shadow: 0 0 0 4px rgba(240, 136, 62, 0.1); }
+}
+
+.server-card.warning.selected {
+  animation: warning-pulse-selected 2s infinite;
+}
+
+@keyframes warning-pulse-selected {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(240, 136, 62, 0.4), 0 0 0 2px rgba(31, 111, 235, 0.3); }
+  50% { box-shadow: 0 0 0 4px rgba(240, 136, 62, 0.1), 0 0 0 2px rgba(31, 111, 235, 0.3); }
 }
 
 .server-id {

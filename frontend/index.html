@@ -14,6 +14,10 @@
         <span class="subtitle">刀片服务器 BMC 监控系统</span>
       </div>
       <div class="header-right">
+        <div class="selection-info" id="selectionInfo" style="display: none;">
+          <span class="selected-count">已选择 <strong id="selectedCount">0</strong> 台</span>
+          <button class="btn btn-clear" onclick="clearSelection()">取消选择</button>
+        </div>
         <div class="status-badge">
           <span class="status-dot" id="connStatus"></span>
           <span id="connText">连接中...</span>
@@ -53,11 +57,27 @@
         <div class="rack-filter" id="rackFilter">
         </div>
 
+        <h3 style="margin-top: 24px;">批量操作</h3>
+        <div class="global-actions">
+          <button class="btn btn-warning" onclick="applyEcoMode()" id="ecoModeBtn" disabled>💡 一键切换到节能模式 (250W)</button>
+          <button class="btn btn-secondary" onclick="setSelectedPowerLimit(400)" id="btn400" disabled>选中设为 400W</button>
+          <button class="btn btn-secondary" onclick="setSelectedPowerLimit(600)" id="btn600" disabled>选中设为 600W</button>
+          <button class="btn btn-secondary" onclick="setSelectedPowerLimit(500)" id="btn500" disabled>选中恢复默认 500W</button>
+        </div>
+
         <h3 style="margin-top: 24px;">全局操作</h3>
         <div class="global-actions">
           <button class="btn btn-secondary" onclick="setAllPowerLimit(600)">全部设为 600W</button>
           <button class="btn btn-secondary" onclick="setAllPowerLimit(400)">全部设为 400W</button>
           <button class="btn btn-secondary" onclick="setAllPowerLimit(500)">恢复默认 500W</button>
+        </div>
+
+        <div class="tip-box" style="margin-top: 24px; padding: 12px; background: #2d333b; border-radius: 8px; font-size: 12px; color: #8b949e; line-height: 1.5;">
+          <strong>💡 操作提示：</strong><br>
+          • 点击格子：查看详情<br>
+          • Ctrl+点击：多选/取消<br>
+          • Shift+点击：范围选择<br>
+          • 双击：快速切换选择
         </div>
       </aside>
 

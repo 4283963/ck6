@@ -55,30 +55,41 @@ func formatSlot(slot int) string {
 }
 
 func (s *BMCSimulator) GetStatus(id string) (ServerStatus, bool) {
+	if s == nil || s.servers == nil {
+		return ServerStatus{}, false
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	svr, ok := s.servers[id]
-	if !ok {
+	if !ok || svr == nil {
 		return ServerStatus{}, false
 	}
 	return *svr, true
 }
 
 func (s *BMCSimulator) ListAll() []ServerStatus {
+	if s == nil || s.servers == nil {
+		return []ServerStatus{}
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	result := make([]ServerStatus, 0, len(s.servers))
 	for _, svr := range s.servers {
-		result = append(result, *svr)
+		if svr != nil {
+			result = append(result, *svr)
+		}
 	}
 	return result
 }
 
 func (s *BMCSimulator) SetPowerLimit(id string, limit float64) bool {
+	if s == nil || s.servers == nil {
+		return false
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	svr, ok := s.servers[id]
-	if !ok {
+	if !ok || svr == nil {
 		return false
 	}
 	if limit < 100 {
@@ -92,11 +103,20 @@ func (s *BMCSimulator) SetPowerLimit(id string, limit float64) bool {
 }
 
 func (s *BMCSimulator) Tick() {
+	if s == nil || s.servers == nil {
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	now := time.Now()
 	for _, svr := range s.servers {
+		if svr == nil {
+			continue
+		}
+		if svr.PowerLimit <= 0 {
+			svr.PowerLimit = 500.0
+		}
 		tempDrift := (rand.Float64() - 0.5) * 3.0
 		targetTemp := 40.0 + (svr.PowerUsage / svr.PowerLimit) * 40.0
 		svr.CPUTemp = svr.CPUTemp*0.9 + targetTemp*0.1 + tempDrift

@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"bmc-rpc-service/bmc"
+	"fmt"
 	"net/rpc"
 	"time"
 )
@@ -39,11 +40,17 @@ func NewBMCService(sim *bmc.BMCSimulator) *BMCService {
 }
 
 func (s *BMCService) ListServers(args ServerListArgs, reply *ServerListReply) error {
+	if s == nil || s.sim == nil || reply == nil {
+		return nil
+	}
 	reply.Servers = s.sim.ListAll()
 	return nil
 }
 
 func (s *BMCService) GetServerStatus(args GetStatusArgs, reply *GetStatusReply) error {
+	if s == nil || s.sim == nil || reply == nil {
+		return nil
+	}
 	status, ok := s.sim.GetStatus(args.ID)
 	reply.Status = status
 	reply.Ok = ok
@@ -51,13 +58,21 @@ func (s *BMCService) GetServerStatus(args GetStatusArgs, reply *GetStatusReply) 
 }
 
 func (s *BMCService) SetPowerLimit(args SetPowerLimitArgs, reply *SetPowerLimitReply) error {
+	if s == nil || s.sim == nil || reply == nil {
+		return nil
+	}
 	reply.Ok = s.sim.SetPowerLimit(args.ID, args.Limit)
 	return nil
 }
 
 func RegisterService(sim *bmc.BMCSimulator) error {
+	if sim == nil {
+		return fmt.Errorf("simulator cannot be nil")
+	}
 	svc := NewBMCService(sim)
 	return rpc.Register(svc)
 }
+
+var _ = fmt.Sprintf
 
 var _ = time.Now

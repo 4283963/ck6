@@ -1,10 +1,14 @@
 const API_BASE = 'http://localhost:8080/api'
 const REFRESH_INTERVAL = 2000
 const WARNING_TEMP = 65.0
+const ECO_MODE_POWER_LIMIT = 250
 
 let servers = []
 let selectedRack = 'all'
 let refreshTimer = null
+let selectedServers = new Set()
+let lastClickedServerId = null
+let isSelecting = false
 
 async function fetchServers() {
   try {
@@ -88,11 +92,19 @@ function renderGrid() {
   
   grid.innerHTML = ''
   
-  filtered.forEach(server => {
+  filtered.forEach((server, index) => {
     const isWarning = server.cpu_temp > WARNING_TEMP
+    const isSelected = selectedServers.has(server.id)
     const card = document.createElement('div')
-    card.className = 'server-card' + (isWarning ? ' warning' : '')
-    card.onclick = () => openModal(server.id)
+    card.className = 'server-card' + (isWarning ? ' warning' : '') + (isSelected ? ' selected' : '')
+    card.dataset.serverId = server.id
+    card.dataset.index = index
+    
+    card.addEventListener('click', (e) => handleServerClick(e, server, index, filtered))
+    card.addEventListener('dblclick', (e) => {
+      e.stopPropagation()
+      toggleServerSelection(server.id)
+    })
     
     card.innerHTML = `
       <div class="status-indicator"></div>
@@ -115,6 +127,84 @@ function renderGrid() {
     
     grid.appendChild(card)
   })
+}
+
+function handleServerClick(e, server, index, filteredList) {
+  e.stopPropagation()
+  
+  const isCtrlClick = e.ctrlKey || e.metaKey
+  const isShiftClick = e.shiftKey
+  
+  if (isCtrlClick) {
+    toggleServerSelection(server.id)
+    lastClickedServerId = server.id
+  } else if (isShiftClick && lastClickedServerId) {
+    const lastIndex = filteredList.findIndex(s => s.id === lastClickedServerId)
+    if (lastIndex !== -1) {
+      const start = Math.min(lastIndex, index)
+      const end = Math.max(lastIndex, index)
+      for (let i = start; i <= end; i++) {
+        selectedServers.add(filteredList[i].id)
+      }
+      updateSelectionUI()
+    }
+  } else {
+    if (selectedServers.size > 0 && !selectedServers.has(server.id)) {
+      clearSelection()
+    }
+    lastClickedServerId = server.id
+    openModal(server.id)
+  }
+}
+
+function toggleServerSelection(id) {
+  if (selectedServers.has(id)) {
+    selectedServers.delete(id)
+  } else {
+    selectedServers.add(id)
+  }
+  updateSelectionUI()
+  renderGrid()
+}
+
+function clearSelection() {
+  selectedServers.clear()
+  lastClickedServerId = null
+  updateSelectionUI()
+  renderGrid()
+}
+
+function selectAllVisible() {
+  let filtered = servers
+  if (selectedRack !== 'all') {
+    filtered = servers.filter(s => getRack(s.id) === selectedRack)
+  }
+  filtered.forEach(s => selectedServers.add(s.id))
+  updateSelectionUI()
+  renderGrid()
+}
+
+function updateSelectionUI() {
+  const selectionInfo = document.getElementById('selectionInfo')
+  const selectedCount = document.getElementById('selectedCount')
+  const ecoBtn = document.getElementById('ecoModeBtn')
+  const btn400 = document.getElementById('btn400')
+  const btn500 = document.getElementById('btn500')
+  const btn600 = document.getElementById('btn600')
+  
+  const hasSelection = selectedServers.size > 0
+  
+  if (hasSelection) {
+    selectionInfo.style.display = 'flex'
+    selectedCount.textContent = selectedServers.size
+  } else {
+    selectionInfo.style.display = 'none'
+  }
+  
+  ecoBtn.disabled = !hasSelection
+  btn400.disabled = !hasSelection
+  btn500.disabled = !hasSelection
+  btn600.disabled = !hasSelection
 }
 
 function updateStats() {
@@ -240,21 +330,78 @@ function closeModal() {
   document.getElementById('modalOverlay').style.display = 'none'
 }
 
-async function setAllPowerLimit(limit) {
-  const promises = servers.map(s => 
-    fetch(`${API_BASE}/server/${s.id}`, {
+async function setSelectedPowerLimit(limit) {
+  if (selectedServers.size === 0) {
+    alert('请先选择服务器')
+    return
+  }
+  
+  const ids = Array.from(selectedServers)
+  await batchSetPowerLimit(ids, limit)
+}
+
+async function applyEcoMode() {
+  if (selectedServers.size === 0) {
+    alert('请先选择要切换到节能模式的服务器')
+    return
+  }
+  
+  const ids = Array.from(selectedServers)
+  const confirmed = confirm(`确定要将选中的 ${ids.length} 台服务器切换到节能模式吗？\n功耗上限将设置为 ${ECO_MODE_POWER_LIMIT}W`)
+  if (!confirmed) {
+    return
+  }
+  
+  await batchSetPowerLimit(ids, ECO_MODE_POWER_LIMIT)
+}
+
+async function batchSetPowerLimit(serverIds, limit) {
+  try {
+    const res = await fetch(`${API_BASE}/servers/batch-power-limit`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ power_limit: limit })
-    }).then(res => res.json())
-  )
-  
-  try {
-    await Promise.all(promises)
-    fetchServers()
+      body: JSON.stringify({
+        server_ids: serverIds,
+        power_limit: limit
+      })
+    })
+    const data = await res.json()
+    
+    if (data.success) {
+      if (data.data.failed && data.data.failed.length > 0) {
+        console.warn('部分服务器设置失败:', data.data.failed)
+      }
+      if (data.data.servers) {
+        data.data.servers.forEach(updatedServer => {
+          const idx = servers.findIndex(s => s.id === updatedServer.id)
+          if (idx !== -1) {
+            servers[idx] = updatedServer
+          }
+        })
+      }
+      renderGrid()
+      updateStats()
+      
+      const successCount = data.data.updated ? data.data.updated.length : 0
+      const failCount = data.data.failed ? data.data.failed.length : 0
+      console.log(`批量设置完成: 成功 ${successCount} 台, 失败 ${failCount} 台`)
+    } else {
+      alert('设置失败: ' + (data.error || '未知错误'))
+    }
   } catch (err) {
-    console.error('Failed to set all power limits:', err)
+    console.error('批量设置功耗限制失败:', err)
+    alert('批量设置失败，请检查后端服务是否正常')
   }
+}
+
+async function setAllPowerLimit(limit) {
+  const confirmed = confirm(`确定要将所有 ${servers.length} 台服务器的功耗上限设置为 ${limit}W 吗？`)
+  if (!confirmed) {
+    return
+  }
+  
+  const ids = servers.map(s => s.id)
+  await batchSetPowerLimit(ids, limit)
 }
 
 document.getElementById('modalOverlay').addEventListener('click', (e) => {
@@ -266,10 +413,27 @@ document.getElementById('modalOverlay').addEventListener('click', (e) => {
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     closeModal()
+    if (selectedServers.size > 0) {
+      clearSelection()
+    }
+  }
+  
+  if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+    e.preventDefault()
+    selectAllVisible()
+  }
+})
+
+document.querySelector('.content').addEventListener('click', (e) => {
+  if (e.target.classList.contains('content') || e.target.classList.contains('grid-container')) {
+    if (!e.ctrlKey && !e.metaKey && !e.shiftKey) {
+      clearSelection()
+    }
   }
 })
 
 function init() {
+  updateSelectionUI()
   fetchServers()
   refreshTimer = setInterval(fetchServers, REFRESH_INTERVAL)
 }
