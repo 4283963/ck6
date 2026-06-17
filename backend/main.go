@@ -229,15 +229,65 @@ func main() {
 		writeJSON(w, http.StatusOK, response)
 	}))
 
+	mux.HandleFunc("/api/silent-mode", panicRecovery(func(w http.ResponseWriter, r *http.Request) {
+		if setCORSHeaders(w, r) {
+			return
+		}
+
+		if sim == nil {
+			writeError(w, http.StatusInternalServerError, "Simulator not initialized")
+			return
+		}
+
+		switch r.Method {
+		case "GET":
+			enabled, total, limited := sim.GetSilentModeStats()
+			writeJSON(w, http.StatusOK, map[string]interface{}{
+				"enabled":          enabled,
+				"total_servers":    total,
+				"limited_servers":  limited,
+				"fan_max_speed":    bmc.FanMaxSpeed,
+				"fan_silent_ratio": bmc.SilentFanRatio,
+				"temp_threshold":   bmc.SilentTempThreshold,
+			})
+
+		case "POST":
+			if r.Body == nil {
+				writeError(w, http.StatusBadRequest, "Request body is required")
+				return
+			}
+			var req struct {
+				Enabled bool `json:"enabled"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				writeError(w, http.StatusBadRequest, "Invalid request body: "+err.Error())
+				return
+			}
+			sim.SetSilentMode(req.Enabled)
+			enabled, total, limited := sim.GetSilentModeStats()
+			writeJSON(w, http.StatusOK, map[string]interface{}{
+				"enabled":         enabled,
+				"total_servers":   total,
+				"limited_servers": limited,
+			})
+
+		default:
+			writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		}
+	}))
+
 	mux.HandleFunc("/api/health", panicRecovery(func(w http.ResponseWriter, r *http.Request) {
 		setCORSHeaders(w, r)
 		if r.Method == "OPTIONS" {
 			return
 		}
+		silentEnabled, _, silentLimited := sim.GetSilentModeStats()
 		writeJSON(w, http.StatusOK, map[string]interface{}{
-			"status":  "ok",
-			"servers": serverCount,
-			"uptime":  time.Since(startTime).String(),
+			"status":         "ok",
+			"servers":        serverCount,
+			"uptime":         time.Since(startTime).String(),
+			"silent_mode":    silentEnabled,
+			"silent_limited": silentLimited,
 		})
 	}))
 
@@ -248,6 +298,8 @@ func main() {
 	fmt.Printf("  GET  /api/server/:id              - Get server status\n")
 	fmt.Printf("  POST /api/server/:id              - Set power limit for single server\n")
 	fmt.Printf("  POST /api/servers/batch-power-limit - Set power limit for multiple servers\n")
+	fmt.Printf("  GET  /api/silent-mode             - Get silent mode status\n")
+	fmt.Printf("  POST /api/silent-mode             - Toggle silent mode\n")
 	fmt.Printf("  GET  /api/health                  - Health check\n")
 
 	if err := http.ListenAndServe(listenAddr, mux); err != nil {

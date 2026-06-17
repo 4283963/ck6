@@ -6,18 +6,27 @@ import (
 	"time"
 )
 
+const (
+	FanMinSpeed    = 2000
+	FanMaxSpeed    = 8000
+	SilentFanRatio = 0.30
+	SilentTempThreshold = 50.0
+)
+
 type ServerStatus struct {
-	ID          string  `json:"id"`
-	FanSpeed    int     `json:"fan_speed"`
-	CPUTemp     float64 `json:"cpu_temp"`
-	PowerUsage  float64 `json:"power_usage"`
-	PowerLimit  float64 `json:"power_limit"`
-	LastUpdated time.Time `json:"last_updated"`
+	ID              string    `json:"id"`
+	FanSpeed        int       `json:"fan_speed"`
+	CPUTemp         float64   `json:"cpu_temp"`
+	PowerUsage      float64   `json:"power_usage"`
+	PowerLimit      float64   `json:"power_limit"`
+	FanSilentLimited bool    `json:"fan_silent_limited"`
+	LastUpdated     time.Time `json:"last_updated"`
 }
 
 type BMCSimulator struct {
-	servers map[string]*ServerStatus
-	mu      sync.RWMutex
+	servers    map[string]*ServerStatus
+	mu         sync.RWMutex
+	silentMode bool
 }
 
 func NewBMCSimulator(count int) *BMCSimulator {
@@ -102,6 +111,65 @@ func (s *BMCSimulator) SetPowerLimit(id string, limit float64) bool {
 	return true
 }
 
+func (s *BMCSimulator) SetSilentMode(enabled bool) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.silentMode = enabled
+
+	if s.servers == nil {
+		return
+	}
+
+	silentMaxSpeed := int(float64(FanMaxSpeed) * SilentFanRatio)
+
+	for _, svr := range s.servers {
+		if svr == nil {
+			continue
+		}
+		if enabled {
+			if svr.CPUTemp < SilentTempThreshold {
+				if svr.FanSpeed > silentMaxSpeed {
+					svr.FanSpeed = silentMaxSpeed
+				}
+				svr.FanSilentLimited = true
+			}
+		} else {
+			svr.FanSilentLimited = false
+		}
+	}
+}
+
+func (s *BMCSimulator) GetSilentMode() bool {
+	if s == nil {
+		return false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.silentMode
+}
+
+func (s *BMCSimulator) GetSilentModeStats() (enabled bool, total int, limited int) {
+	if s == nil || s.servers == nil {
+		return false, 0, 0
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	enabled = s.silentMode
+	total = len(s.servers)
+	limited = 0
+
+	for _, svr := range s.servers {
+		if svr != nil && svr.FanSilentLimited {
+			limited++
+		}
+	}
+	return
+}
+
 func (s *BMCSimulator) Tick() {
 	if s == nil || s.servers == nil {
 		return
@@ -110,6 +178,8 @@ func (s *BMCSimulator) Tick() {
 	defer s.mu.Unlock()
 
 	now := time.Now()
+	silentMaxSpeed := int(float64(FanMaxSpeed) * SilentFanRatio)
+
 	for _, svr := range s.servers {
 		if svr == nil {
 			continue
@@ -117,17 +187,43 @@ func (s *BMCSimulator) Tick() {
 		if svr.PowerLimit <= 0 {
 			svr.PowerLimit = 500.0
 		}
-		tempDrift := (rand.Float64() - 0.5) * 3.0
-		targetTemp := 40.0 + (svr.PowerUsage / svr.PowerLimit) * 40.0
-		svr.CPUTemp = svr.CPUTemp*0.9 + targetTemp*0.1 + tempDrift
 
-		if svr.CPUTemp > 70.0 {
-			svr.FanSpeed = min(8000, svr.FanSpeed+200+rand.Intn(300))
-		} else if svr.CPUTemp < 50.0 {
-			svr.FanSpeed = max(2000, svr.FanSpeed-100-rand.Intn(200))
+		tempDrift := (rand.Float64() - 0.5) * 3.0
+		targetTemp := 35.0 + (svr.PowerUsage / 800.0) * 50.0
+		svr.CPUTemp = svr.CPUTemp*0.92 + targetTemp*0.08 + tempDrift
+
+		if s.silentMode {
+			if svr.CPUTemp >= SilentTempThreshold {
+				svr.FanSilentLimited = false
+				if svr.CPUTemp > 70.0 {
+					svr.FanSpeed = min(FanMaxSpeed, svr.FanSpeed+200+rand.Intn(300))
+				} else {
+					svr.FanSpeed += rand.Intn(200) - 50
+				}
+			} else {
+				svr.FanSilentLimited = true
+				targetFan := silentMaxSpeed - rand.Intn(200)
+				if svr.FanSpeed > targetFan {
+					svr.FanSpeed = max(FanMinSpeed, svr.FanSpeed-50-rand.Intn(100))
+				} else if svr.FanSpeed < targetFan {
+					svr.FanSpeed = min(silentMaxSpeed, svr.FanSpeed+20+rand.Intn(50))
+				}
+				if svr.FanSpeed > silentMaxSpeed {
+					svr.FanSpeed = silentMaxSpeed
+				}
+			}
 		} else {
-			svr.FanSpeed += rand.Intn(200) - 100
+			svr.FanSilentLimited = false
+			if svr.CPUTemp > 70.0 {
+				svr.FanSpeed = min(FanMaxSpeed, svr.FanSpeed+200+rand.Intn(300))
+			} else if svr.CPUTemp < 50.0 {
+				svr.FanSpeed = max(FanMinSpeed, svr.FanSpeed-100-rand.Intn(200))
+			} else {
+				svr.FanSpeed += rand.Intn(200) - 100
+			}
 		}
+
+		svr.FanSpeed = max(FanMinSpeed, min(FanMaxSpeed, svr.FanSpeed))
 
 		powerDrift := (rand.Float64() - 0.5) * 20.0
 		svr.PowerUsage = minf(svr.PowerLimit, svr.PowerUsage+powerDrift)

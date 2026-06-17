@@ -9,6 +9,8 @@ let refreshTimer = null
 let selectedServers = new Set()
 let lastClickedServerId = null
 let isSelecting = false
+let silentModeEnabled = false
+let silentModeStats = { limited: 0, total: 0 }
 
 async function fetchServers() {
   try {
@@ -26,6 +28,68 @@ async function fetchServers() {
   } catch (err) {
     console.error('Failed to fetch servers:', err)
     updateConnStatus(false)
+  }
+}
+
+async function fetchSilentModeStatus() {
+  try {
+    const res = await fetch(`${API_BASE}/silent-mode`)
+    const data = await res.json()
+    if (data.success) {
+      silentModeEnabled = data.data.enabled
+      silentModeStats.limited = data.data.limited_servers
+      silentModeStats.total = data.data.total_servers
+      updateSilentModeUI()
+    }
+  } catch (err) {
+    console.error('Failed to fetch silent mode status:', err)
+  }
+}
+
+async function toggleSilentMode() {
+  const toggle = document.getElementById('silentModeToggle')
+  const enabled = toggle.checked
+  
+  try {
+    const res = await fetch(`${API_BASE}/silent-mode`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled })
+    })
+    const data = await res.json()
+    
+    if (data.success) {
+      silentModeEnabled = data.data.enabled
+      silentModeStats.limited = data.data.limited_servers
+      silentModeStats.total = data.data.total_servers
+      updateSilentModeUI()
+      fetchServers()
+    } else {
+      toggle.checked = silentModeEnabled
+      alert('操作失败: ' + (data.error || '未知错误'))
+    }
+  } catch (err) {
+    console.error('Failed to toggle silent mode:', err)
+    toggle.checked = silentModeEnabled
+    alert('操作失败，请检查后端服务')
+  }
+}
+
+function updateSilentModeUI() {
+  const toggle = document.getElementById('silentModeToggle')
+  const detail = document.getElementById('silentDetail')
+  const footer = document.querySelector('.footer')
+  
+  if (toggle.checked !== silentModeEnabled) {
+    toggle.checked = silentModeEnabled
+  }
+  
+  if (silentModeEnabled) {
+    footer.classList.add('silent-active')
+    detail.textContent = `已启用 · ${silentModeStats.limited} 台静音中`
+  } else {
+    footer.classList.remove('silent-active')
+    detail.textContent = '未启用'
   }
 }
 
@@ -106,8 +170,12 @@ function renderGrid() {
       toggleServerSelection(server.id)
     })
     
+    const fanSilent = server.fan_silent_limited
+    const fanPercent = Math.round((server.fan_speed / 8000) * 100)
+    
     card.innerHTML = `
       <div class="status-indicator"></div>
+      ${fanSilent ? '<div class="silent-badge" title="静音模式限制中">🔇</div>' : ''}
       <div class="server-id">${server.id}</div>
       <div class="server-temp">
         ${server.cpu_temp.toFixed(1)}
@@ -116,7 +184,10 @@ function renderGrid() {
       <div class="server-meta">
         <div class="meta-row">
           <span>风扇</span>
-          <span class="meta-value">${server.fan_speed} RPM</span>
+          <span class="meta-value ${fanSilent ? 'silent-fan' : ''}">
+            ${fanSilent ? '🔇 ' : ''}${server.fan_speed} RPM
+            <span style="opacity:0.6;font-size:10px">(${fanPercent}%)</span>
+          </span>
         </div>
         <div class="meta-row">
           <span>功耗</span>
@@ -245,7 +316,11 @@ function openModal(serverId) {
         </div>
         <div class="detail-item">
           <div class="detail-label">风扇转速</div>
-          <div class="detail-value">${server.fan_speed}<span class="detail-unit"> RPM</span></div>
+          <div class="detail-value ${server.fan_silent_limited ? 'warning' : ''}">
+            ${server.fan_silent_limited ? '🔇 ' : ''}${server.fan_speed}
+            <span class="detail-unit">RPM (${Math.round(server.fan_speed / 80)}%)</span>
+          </div>
+          ${server.fan_silent_limited ? '<div style="font-size: 11px; color: #3fb950; margin-top: 4px;">静音模式限制中</div>' : ''}
         </div>
       </div>
     </div>
@@ -435,7 +510,11 @@ document.querySelector('.content').addEventListener('click', (e) => {
 function init() {
   updateSelectionUI()
   fetchServers()
-  refreshTimer = setInterval(fetchServers, REFRESH_INTERVAL)
+  fetchSilentModeStatus()
+  refreshTimer = setInterval(() => {
+    fetchServers()
+    fetchSilentModeStatus()
+  }, REFRESH_INTERVAL)
 }
 
 init()
