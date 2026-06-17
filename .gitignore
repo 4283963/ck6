@@ -33,3 +33,9 @@ bin/
 obj/
 __pycache__/
 *.pyc
+
+# Go 编译产物
+backend/bmc-server
+backend/*.exe
+backend/*.dll
+backend/*.so
